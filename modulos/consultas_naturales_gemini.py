@@ -426,45 +426,56 @@ class PestanaConsultasNaturales(ctk.CTkFrame):
     
     def obtener_estructura_bd(self):
         """Obtiene la estructura de la base de datos actual"""
+        # Verificar primero la conexión a la base de datos
         conexion, cursor = self.obtener_conexion()
+        
+        # Verificar que la conexión esté disponible
         if not conexion or not cursor:
-            return {}
-
-        bd_actual = self.obtener_bd()
-        if not bd_actual:
-            return {}
-
-        cursor.execute(f"USE {bd_actual}")
-        cursor.execute("SHOW TABLES")
-        tablas = cursor.fetchall()
-
-        estructura = {}
-        for tabla in tablas:
-            nombre_tabla = tabla[0]
-            # Obtener estructura de la tabla
-            cursor.execute(f"DESCRIBE {nombre_tabla}")
-            columnas = cursor.fetchall()
-            estructura[nombre_tabla] = {
-                'columnas': columnas,
-                'relaciones': []
-            }
-
-            # Obtener claves foráneas
-            cursor.execute(f"""
-                SELECT 
-                    COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
-                FROM
-                    INFORMATION_SCHEMA.KEY_COLUMN_USAGE
-                WHERE
-                    TABLE_SCHEMA = '{bd_actual}'
-                    AND TABLE_NAME = '{nombre_tabla}'
-                    AND REFERENCED_TABLE_NAME IS NOT NULL
-            """)
-            relaciones = cursor.fetchall()
-            estructura[nombre_tabla]['relaciones'] = relaciones
-
-        return estructura
+            return None
             
+        try:
+            # Obtener la base de datos actual
+            bd_actual = self.obtener_bd()
+            
+            if not bd_actual:
+                return None
+
+            # Usar comillas invertidas para el nombre de la base de datos
+            cursor.execute(f"USE `{bd_actual}`")
+            cursor.execute("SHOW TABLES")
+            tablas = cursor.fetchall()
+            
+            estructura = {}
+            for tabla in tablas:
+                nombre_tabla = tabla[0]
+                # Obtener estructura de la tabla usando comillas invertidas
+                cursor.execute(f"DESCRIBE `{nombre_tabla}`")
+                columnas = cursor.fetchall()
+                estructura[nombre_tabla] = {
+                    'columnas': columnas,
+                    'relaciones': []
+                }
+                
+                # Obtener claves foráneas usando comillas invertidas para las tablas
+                cursor.execute(f"""
+                    SELECT 
+                        COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                    FROM
+                        INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                    WHERE
+                        TABLE_SCHEMA = '{bd_actual}'
+                        AND TABLE_NAME = '{nombre_tabla}'
+                        AND REFERENCED_TABLE_NAME IS NOT NULL
+                """)
+                relaciones = cursor.fetchall()
+                estructura[nombre_tabla]['relaciones'] = relaciones
+                
+            return estructura
+            
+        except mysql.connector.Error as e:
+            print(f"Error al obtener la estructura de la base de datos: {str(e)}")
+            return None
+
     def procesar_consulta_natural(self):
         """Procesa la consulta en lenguaje natural y ejecuta la consulta SQL generada"""
         texto_natural = self.editor_natural.get("1.0", "end-1c").strip()
@@ -574,4 +585,3 @@ class PestanaConsultasNaturales(ctk.CTkFrame):
                 text_color="red"
             )
             return
-      
