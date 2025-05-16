@@ -35,6 +35,9 @@ class PestanaAcercaDe(ctk.CTkFrame):
         • Para las consultas en lenguaje natura es necesario tener una clave API de Gemini https://ai.google.dev/gemini-api/docs?hl=es-419
         
         Desarrollado con café, Python, tkinter y customtkinter.
+        
+        Versión 0.0.1
+        2025 - entreunosyceros
         """
 
         descripcion_label = ctk.CTkLabel(
