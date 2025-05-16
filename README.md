@@ -55,6 +55,9 @@ python main.py
 2. **Configuración de Gemini**
    - Obtén una API key de Google Cloud Platform
    - Pega SOLO la key en `config/gemini_config.txt` o añádela desde el formulario `Consultas en Lenguaje Natural`
+
+![add-gemini-key](https://github.com/user-attachments/assets/ffe3f911-3938-479d-9db9-bbd9d8e7074b)
+
    - La API Key se puede obtener en la web  https://ai.google.dev/gemini-api/docs?hl=es-419
 
 ## Uso
