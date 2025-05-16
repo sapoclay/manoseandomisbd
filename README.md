@@ -7,7 +7,7 @@ Ha sido diseñada para hacer las consultas y el análisis de datos más accesibl
 
 - 🔗 **Gestión de conexiones MySQL** - Conexión y gestión intuitiva de bases de datos. Por el momento SOLO SQL
 - 📊 **Visualización de datos** - Generación de gráficos interactivos con Matplotlib
-- 📝 **Editor SQL avanzado** - Editor de consultas con resaltado de sintaxis y gestión de sentencias favoritas
+- 📝 **Editor SQL** - Editor de consultas con resaltado de sintaxis y gestión de sentencias favoritas
 - 🤖 **Consultas en lenguaje natural** - Utiliza IA (Gemini, gemini-2.0-flash que es gratuita) para traducir preguntas en español a SQL. No se envían los datos a Gemini, solo la estructura de la Base de Datos
 - 🎨 **Interfaz moderna** - Diseño elegante y responsive con CustomTkinter
 - 🔄 **Monitoreo en tiempo Real** - Estado del servidor y conexiones en tiempo real
@@ -86,8 +86,6 @@ ManoseandoMisBD/                        # Aplicación de gestión de bases de da
 │
 ├── modulos/                            # Módulos principales de la aplicación
 │   ├── __pycache__/                    # Archivos de caché de Python (generados automáticamente)
-│   │   ├── *.cpython-312.pyc           # Archivos compilados para Python 3.12
-│   │   └── *.cpython-313.pyc           # Archivos compilados para Python 3.13
 │   ├── __init__.py                     # Inicializador del paquete
 │   ├── acerca_de.py                    # Módulo para la implementación de la pestaña "Acerca de"
 │   ├── conexion.py                     # Módulo para la gestión de conexiones MySQL y la pestaña "Conexión"

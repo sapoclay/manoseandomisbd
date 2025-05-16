@@ -7,15 +7,9 @@ class GeminiAPI:
     """Clase para manejar las consultas a la API de Gemini"""
     
     def __init__(self, api_key=None):
-        """Inicializa la conexión con la API de Gemini
-        
-        Args:
-            api_key: Clave de API para Gemini. Si no se proporciona, se intentará
-                    obtener del archivo de configuración o de la variable de entorno GEMINI_API_KEY.            
-                    
-        """
+        """Inicializa la conexión con la API de Gemini"""
         self.api_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
-        # Modificar la ruta para que apunte a config/gemini_config.txt
+        # Usar os.path.join para rutas compatibles
         self.config_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "gemini_config.txt")
         
         # Intentar cargar la API key del archivo de configuración

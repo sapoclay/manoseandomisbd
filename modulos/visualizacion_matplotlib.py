@@ -11,6 +11,7 @@ import os
 import io
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 import numpy as np
+import sys
 
 class PestanaVisualizacionMatplotlib(ctk.CTkFrame):
     def __init__(self, parent, obtener_conexion, obtener_bd):
@@ -111,22 +112,23 @@ class PestanaVisualizacionMatplotlib(ctk.CTkFrame):
         if not bd_actual:
             return {}
 
-        cursor.execute(f"USE {bd_actual}")
+        # Usar comillas invertidas para el nombre de la base de datos
+        cursor.execute(f"USE `{bd_actual}`")
         cursor.execute("SHOW TABLES")
         tablas = cursor.fetchall()
 
         estructura = {}
         for tabla in tablas:
             nombre_tabla = tabla[0]
-            # Obtener estructura de la tabla
-            cursor.execute(f"DESCRIBE {nombre_tabla}")
+            # Obtener estructura de la tabla usando comillas invertidas
+            cursor.execute(f"DESCRIBE `{nombre_tabla}`")
             columnas = cursor.fetchall()
             estructura[nombre_tabla] = {
                 'columnas': columnas,
                 'relaciones': []
             }
 
-            # Obtener claves foráneas
+            # Obtener claves foráneas usando comillas invertidas
             cursor.execute(f"""
                 SELECT 
                     COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
@@ -241,7 +243,7 @@ class PestanaVisualizacionMatplotlib(ctk.CTkFrame):
                     campos_info.append((f"... y {len(estructura[node]['columnas']) - 7} más", "", False))
                     break
             
-            # Calcular posición para cada campo con mejor espaciado vertical
+            # Calcular posición para cada campo with mejor espaciado vertical
             # Ajustamos el espaciado según la cantidad de campos para optimizar el espacio
             total_campos = len(campos_texto)
             
@@ -255,7 +257,7 @@ class PestanaVisualizacionMatplotlib(ctk.CTkFrame):
                      color='black', linewidth=0.5, alpha=0.5, zorder=3)
             
             for i, (campo, info) in enumerate(zip(campos_texto, campos_info)):
-                # Calcular posición vertical con mejor distribución
+                # Calcular posición vertical with mejor distribución
                 # Empezamos desde arriba (después del título) y vamos bajando
                 offset_y = alto/2 - 0.06 - ((i + 0.7) * espacio_por_campo)
                 
@@ -359,7 +361,13 @@ class PestanaVisualizacionMatplotlib(ctk.CTkFrame):
             self.canvas.bind("<ButtonPress-1>", self.start_pan)
             self.canvas.bind("<B1-Motion>", self.pan_image)
             self.canvas.bind("<ButtonRelease-1>", self.stop_pan)
-            self.canvas.bind("<MouseWheel>", self.zoom_with_mouse)  # Para Windows
+            
+            # Eventos de rueda del ratón para diferentes sistemas operativos
+            if sys.platform.startswith('win'):
+                self.canvas.bind("<MouseWheel>", self.zoom_with_mouse_windows)
+            else:  # Linux y macOS
+                self.canvas.bind("<Button-4>", self.zoom_with_mouse_linux)
+                self.canvas.bind("<Button-5>", self.zoom_with_mouse_linux)
             
             # Mostrar la imagen inicial
             self.update_image()
@@ -416,7 +424,1311 @@ class PestanaVisualizacionMatplotlib(ctk.CTkFrame):
                 wraplength=600
             )
             self.info_label.pack(pady=20)
+
+    def obtener_estructura_tablas(self) -> Dict:
+        conexion, cursor = self.obtener_conexion()
+        if not conexion or not cursor:
+            return {}
+
+        bd_actual = self.obtener_bd()
+        if not bd_actual:
+            return {}
+
+        # Usar comillas invertidas para el nombre de la base de datos
+        cursor.execute(f"USE `{bd_actual}`")
+        cursor.execute("SHOW TABLES")
+        tablas = cursor.fetchall()
+
+        estructura = {}
+        for tabla in tablas:
+            nombre_tabla = tabla[0]
+            # Obtener estructura de la tabla usando comillas invertidas
+            cursor.execute(f"DESCRIBE `{nombre_tabla}`")
+            columnas = cursor.fetchall()
+            estructura[nombre_tabla] = {
+                'columnas': columnas,
+                'relaciones': []
+            }
+
+            # Obtener claves foráneas usando comillas invertidas
+            cursor.execute(f"""
+                SELECT 
+                    COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                FROM
+                    INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                WHERE
+                    TABLE_SCHEMA = '{bd_actual}'
+                    AND TABLE_NAME = '{nombre_tabla}'
+                    AND REFERENCED_TABLE_NAME IS NOT NULL
+            """)
+            relaciones = cursor.fetchall()
+            estructura[nombre_tabla]['relaciones'] = relaciones
+
+        return estructura
+
+    def generar_diagrama(self):
+        estructura = self.obtener_estructura_tablas()
+        if not estructura:
+            self.info_label.configure(text="No hay conexión a la base de datos o no se ha seleccionado una base de datos")
+            return
+
+        # Crear un grafo dirigido
+        G = nx.DiGraph()
+        
+        # Agregar nodos (tablas)
+        for tabla, info in estructura.items():
+            # Preparar el texto para el nodo
+            contenido = f"{tabla}\n\n"
+            for columna in info['columnas']:
+                nombre = columna[0]
+                tipo = columna[1]
+                nulo = 'NULL' if columna[2] == 'YES' else 'NOT NULL'
+                clave = ' PK' if columna[3] == 'PRI' else ''
+                contenido += f"{nombre} : {tipo} {nulo}{clave}\n"
             
+            # Determinar el color del nodo según si tiene relaciones
+            tiene_relaciones = len(info['relaciones']) > 0
+            G.add_node(tabla, label=contenido, has_relations=tiene_relaciones)
+
+        # Añadir aristas (relaciones)
+        for tabla, info in estructura.items():
+            for relacion in info['relaciones']:
+                columna_origen = relacion[0]
+                tabla_destino = relacion[1]
+                columna_destino = relacion[2]
+                G.add_edge(tabla, tabla_destino, label=f"{columna_origen} -> {columna_destino}")
+
+        # Crear figura para el diagrama con un tamaño adecuado
+        plt.figure(figsize=(14, 10))
+        plt.clf()  # Limpiar la figura actual
+        
+        # Usar un layout para diagramas de bases de datos con mayor separación entre tablas
+        if len(G.nodes()) <= 5:
+            pos = nx.spring_layout(G, k=2.5, iterations=200)  # Aumentado el espacio entre nodos para pocos nodos
+        else:
+            # Para más nodos, usar un layout más espaciado pero organizado
+            try:
+                # Intentar primero con kamada_kawai pero con mucho más espacio
+                pos = nx.kamada_kawai_layout(G)
+                # Aplicar un factor de escala mayor para separar más los nodos
+                pos = {node: (coord[0]*3.0, coord[1]*3.0) for node, coord in pos.items()}
+            except:
+                # Fallback con mucha más separación
+                pos = nx.spring_layout(G, k=2.0, iterations=200, seed=42)
+        
+        # Dibujar nodos como cuadrados with los campos dentro
+        for node in G.nodes():
+            # Obtener posición del nodo
+            x, y = pos[node]
+            
+            # Calcular tamaño del cuadrado basado en la cantidad de columnas y longitud del nombre
+            num_columnas = len(estructura[node]['columnas'])
+            # Ajustar el ancho basado en la longitud del nombre de la tabla y el contenido de los campos
+            # Calcular la longitud máxima de los nombres de campos para ajustar el ancho
+            max_campo_len = max([len(col[0]) for col in estructura[node]['columnas']], default=0)
+            ancho_base = max(0.25, len(node) * 0.012)
+            ancho = ancho_base + (max_campo_len * 0.012)  # Ancho proporcional a la longitud máxima de los campos
+            alto = 0.18 + (num_columnas * 0.04)    # Alto proporcional a la cantidad de columnas con más espacio
+            
+            # El tamaño de los nodos para evitar superposiciones
+            ancho *= 0.9
+            alto *= 0.9
+            
+            # Color del nodo según si tiene relaciones
+            color = '#4CAF50' if G.nodes[node].get('has_relations', False) else '#2196F3'
+            
+            # Crear un rectángulo para el nodo
+            rect = plt.Rectangle((x - ancho/2, y - alto/2), ancho, alto, 
+                                 facecolor=color, alpha=0.8, edgecolor='black', zorder=2)
+            plt.gca().add_patch(rect)
+            
+            # Agregar el nombre de la tabla en la parte superior del cuadrado con más margen
+            # El margen superior se reduce para acercar el título a los campos
+            plt.text(x, y + alto/2 - 0.008, node, 
+                     horizontalalignment='center', verticalalignment='top',
+                     fontsize=10, fontweight='bold', color='black', zorder=3)
+            
+            # Agregar los campos de la tabla dentro del cuadrado
+            campos_texto = []
+            campos_info = []
+            for i, columna in enumerate(estructura[node]['columnas']):
+                nombre = columna[0]
+                tipo = columna[1]
+                es_pk = ' (PK)' if columna[3] == 'PRI' else ''
+                campo_texto = f"{nombre}{es_pk}"
+                campos_texto.append(campo_texto)
+                campos_info.append((nombre, es_pk, columna[3] == 'PRI'))
+                
+                # Limitar la cantidad de campos mostrados si son muchos
+                if i >= 6 and len(estructura[node]['columnas']) > 8:
+                    campos_texto.append(f"... y {len(estructura[node]['columnas']) - 7} más")
+                    campos_info.append((f"... y {len(estructura[node]['columnas']) - 7} más", "", False))
+                    break
+            
+            # Calcular posición para cada campo with mejor espaciado vertical
+            # Ajustamos el espaciado según la cantidad de campos para optimizar el espacio
+            total_campos = len(campos_texto)
+            
+            # Calcular el espacio disponible dentro del rectángulo para los campos
+            espacio_disponible = alto - 0.06  # Reservar espacio para el título
+            espacio_por_campo = espacio_disponible / max(total_campos, 1)  # Evitar división por cero
+            
+            # Dibujar un separador después del título
+            separador_y = y + alto/2 - 0.04
+            plt.plot([x - ancho/2 + 0.01, x + ancho/2 - 0.01], [separador_y, separador_y], 
+                     color='black', linewidth=0.5, alpha=0.5, zorder=3)
+            
+            for i, (campo, info) in enumerate(zip(campos_texto, campos_info)):
+                # Calcular posición vertical with mejor distribución
+                # Empezamos desde arriba (después del título) y vamos bajando
+                offset_y = alto/2 - 0.06 - ((i + 0.7) * espacio_por_campo)
+                
+                # Determinar si es clave primaria para destacarla
+                es_pk = info[2]  # Es clave primaria
+                
+                # Dibujar el texto del campo con un fondo para mejor legibilidad
+                plt.text(x, y + offset_y, campo, 
+                         horizontalalignment='center', verticalalignment='center',
+                         fontsize=8, color='black', zorder=3,
+                         bbox=dict(facecolor='#E8F5E9' if es_pk else 'white', 
+                                  alpha=0.8, edgecolor='#CCCCCC' if es_pk else None, 
+                                  pad=2, boxstyle="round,pad=0.4"))
+        
+        # Dibujar aristas después de los nodos para que aparezcan por encima
+        nx.draw_networkx_edges(G, pos, edge_color='#9C27B0', arrows=True, arrowsize=20, width=1.5, alpha=0.9)
+        
+        # Dibujar etiquetas de aristas (relaciones) con mejor formato y por encima de todo
+        edge_labels = {(u, v): G[u][v]['label'] for u, v in G.edges()}
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=9, font_color='#D81B60')
+        
+        # Ajustar el diseño
+        plt.axis('off')
+        plt.tight_layout()
+        
+        # Asegurar que todo el gráfico esté visible dentro de los límites
+        ax = plt.gca()
+        ax.set_xlim(ax.get_xlim()[0] - 0.1, ax.get_xlim()[1] + 0.1)
+        ax.set_ylim(ax.get_ylim()[0] - 0.1, ax.get_ylim()[1] + 0.1)
+        
+        # Asegurarse de que el directorio 'img' exista
+        try:
+            os.makedirs(os.path.dirname(self.ruta_temp), exist_ok=True)
+        except Exception as e:
+            print(f"Error al crear el directorio para el diagrama: {e}") # Opcional para depuración
+            # Podrías mostrar un mensaje al usuario aquí si la creación falla
+            self.info_label.configure(text=f"Error al preparar la ruta para guardar el diagrama: {e}")
+            return
+
+        # Guardar la figura temporalmente
+        if os.path.exists(self.ruta_temp):
+            try:
+                os.remove(self.ruta_temp)
+            except:
+                pass # Si no se puede borrar, savefig lo sobrescribirá
+        
+        plt.savefig(self.ruta_temp, format='png', dpi=100, bbox_inches='tight')
+        plt.close()
+        
+        # Actualizar el estado antes de mostrar el diagrama
+        self.diagrama_generado = True
+        
+        # Mostrar el diagrama en la interfaz
+        self.mostrar_diagrama()
+        
+        # Crear una nueva etiqueta de información después de mostrar el diagrama
+        self.info_label = ctk.CTkLabel(
+            self.frame_diagrama,
+            text="Diagrama generado exitosamente !!!",
+            wraplength=600
+        )
+        self.info_label.pack(pady=5)
+
+    def mostrar_diagrama(self):
+        # Limpiar el frame de diagrama
+        for widget in self.frame_diagrama.winfo_children():
+            widget.destroy()
+        
+        # Cargar la imagen del diagrama
+        try:
+            self.original_img = Image.open(self.ruta_temp)
+            self.img_width, self.img_height = self.original_img.size
+            
+            # Crear un frame para contener la imagen y la información detallada
+            frame_contenido = ctk.CTkFrame(self.frame_diagrama)
+            frame_contenido.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            # Frame para la imagen con zoom
+            frame_imagen = ctk.CTkFrame(frame_contenido)
+            frame_imagen.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+            
+            # Canvas para la imagen con zoom y desplazamiento
+            self.canvas_frame = ctk.CTkFrame(frame_imagen)
+            self.canvas_frame.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Canvas para mostrar la imagen con capacidad de zoom y desplazamiento
+            self.canvas = Canvas(self.canvas_frame, bg="#2b2b2b", highlightthickness=0)
+            self.canvas.pack(fill="both", expand=True)
+            
+            # Crear scrollbars pero usando place para superponerlos sobre el canvas
+            h_scrollbar = Scrollbar(self.canvas_frame, orient="horizontal", command=self.canvas.xview)
+            v_scrollbar = Scrollbar(self.canvas_frame, orient="vertical", command=self.canvas.yview)
+            
+            # Usar place para superponer los scrollbars sobre el canvas
+            h_scrollbar.place(relx=0, rely=1.0, relwidth=1.0, anchor="sw", height=15)
+            v_scrollbar.place(relx=1.0, rely=0, relheight=1.0, anchor="ne", width=15)
+            
+            self.canvas.configure(xscrollcommand=h_scrollbar.set, yscrollcommand=v_scrollbar.set)
+            
+            # Configurar eventos del canvas para zoom y desplazamiento
+            self.canvas.bind("<ButtonPress-1>", self.start_pan)
+            self.canvas.bind("<B1-Motion>", self.pan_image)
+            self.canvas.bind("<ButtonRelease-1>", self.stop_pan)
+            
+            # Eventos de rueda del ratón para diferentes sistemas operativos
+            if sys.platform.startswith('win'):
+                self.canvas.bind("<MouseWheel>", self.zoom_with_mouse_windows)
+            else:  # Linux y macOS
+                self.canvas.bind("<Button-4>", self.zoom_with_mouse_linux)
+                self.canvas.bind("<Button-5>", self.zoom_with_mouse_linux)
+            
+            # Mostrar la imagen inicial
+            self.update_image()
+            
+            # Frame para mostrar detalles de las tablas
+            frame_detalles = ctk.CTkFrame(frame_contenido)
+            frame_detalles.pack(side="right", fill="both", expand=True, padx=5, pady=5)
+            
+            # Título para el panel de detalles
+            ctk.CTkLabel(
+                frame_detalles,
+                text="Detalles de las tablas",
+                font=("Arial", 14, "bold")
+            ).pack(pady=5)
+            
+            # Obtener la estructura de las tablas para mostrar detalles
+            estructura = self.obtener_estructura_tablas()
+            
+            # Crear un combobox para seleccionar la tabla
+            ctk.CTkLabel(frame_detalles, text="Selecciona una tabla:").pack(pady=5)
+            combo_tablas = ctk.CTkComboBox(
+                frame_detalles,
+                values=list(estructura.keys()),
+                command=self.mostrar_detalles_tabla
+            )
+            combo_tablas.pack(pady=5)
+            
+            # Frame para mostrar los detalles de la tabla seleccionada
+            self.frame_info_tabla = ctk.CTkScrollableFrame(frame_detalles, height=300)
+            self.frame_info_tabla.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Etiqueta inicial
+            self.label_info_tabla = ctk.CTkLabel(
+                self.frame_info_tabla,
+                text="Selecciona una tabla para ver sus detalles",
+                wraplength=300
+            )
+            self.label_info_tabla.pack(pady=10)
+            
+            # Guardar la estructura para acceder desde el callback
+            self.estructura_tablas = estructura
+            
+            # Agregar etiqueta informativa
+            ctk.CTkLabel(
+                frame_imagen,
+                text="Usa el ratón para mover y la rueda para hacer zoom",
+                font=("Arial", 10)
+            ).pack(pady=5)
+            
+        except Exception as e:
+            self.info_label = ctk.CTkLabel(
+                self.frame_diagrama,
+                text=f"Error al mostrar el diagrama: {str(e)}",
+                wraplength=600
+            )
+            self.info_label.pack(pady=20)
+
+    def obtener_estructura_tablas(self) -> Dict:
+        conexion, cursor = self.obtener_conexion()
+        if not conexion or not cursor:
+            return {}
+
+        bd_actual = self.obtener_bd()
+        if not bd_actual:
+            return {}
+
+        # Usar comillas invertidas para el nombre de la base de datos
+        cursor.execute(f"USE `{bd_actual}`")
+        cursor.execute("SHOW TABLES")
+        tablas = cursor.fetchall()
+
+        estructura = {}
+        for tabla in tablas:
+            nombre_tabla = tabla[0]
+            # Obtener estructura de la tabla usando comillas invertidas
+            cursor.execute(f"DESCRIBE `{nombre_tabla}`")
+            columnas = cursor.fetchall()
+            estructura[nombre_tabla] = {
+                'columnas': columnas,
+                'relaciones': []
+            }
+
+            # Obtener claves foráneas usando comillas invertidas
+            cursor.execute(f"""
+                SELECT 
+                    COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                FROM
+                    INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                WHERE
+                    TABLE_SCHEMA = '{bd_actual}'
+                    AND TABLE_NAME = '{nombre_tabla}'
+                    AND REFERENCED_TABLE_NAME IS NOT NULL
+            """)
+            relaciones = cursor.fetchall()
+            estructura[nombre_tabla]['relaciones'] = relaciones
+
+        return estructura
+
+    def generar_diagrama(self):
+        estructura = self.obtener_estructura_tablas()
+        if not estructura:
+            self.info_label.configure(text="No hay conexión a la base de datos o no se ha seleccionado una base de datos")
+            return
+
+        # Crear un grafo dirigido
+        G = nx.DiGraph()
+        
+        # Agregar nodos (tablas)
+        for tabla, info in estructura.items():
+            # Preparar el texto para el nodo
+            contenido = f"{tabla}\n\n"
+            for columna in info['columnas']:
+                nombre = columna[0]
+                tipo = columna[1]
+                nulo = 'NULL' if columna[2] == 'YES' else 'NOT NULL'
+                clave = ' PK' if columna[3] == 'PRI' else ''
+                contenido += f"{nombre} : {tipo} {nulo}{clave}\n"
+            
+            # Determinar el color del nodo según si tiene relaciones
+            tiene_relaciones = len(info['relaciones']) > 0
+            G.add_node(tabla, label=contenido, has_relations=tiene_relaciones)
+
+        # Añadir aristas (relaciones)
+        for tabla, info in estructura.items():
+            for relacion in info['relaciones']:
+                columna_origen = relacion[0]
+                tabla_destino = relacion[1]
+                columna_destino = relacion[2]
+                G.add_edge(tabla, tabla_destino, label=f"{columna_origen} -> {columna_destino}")
+
+        # Crear figura para el diagrama con un tamaño adecuado
+        plt.figure(figsize=(14, 10))
+        plt.clf()  # Limpiar la figura actual
+        
+        # Usar un layout para diagramas de bases de datos con mayor separación entre tablas
+        if len(G.nodes()) <= 5:
+            pos = nx.spring_layout(G, k=2.5, iterations=200)  # Aumentado el espacio entre nodos para pocos nodos
+        else:
+            # Para más nodos, usar un layout más espaciado pero organizado
+            try:
+                # Intentar primero con kamada_kawai pero con mucho más espacio
+                pos = nx.kamada_kawai_layout(G)
+                # Aplicar un factor de escala mayor para separar más los nodos
+                pos = {node: (coord[0]*3.0, coord[1]*3.0) for node, coord in pos.items()}
+            except:
+                # Fallback con mucha más separación
+                pos = nx.spring_layout(G, k=2.0, iterations=200, seed=42)
+        
+        # Dibujar nodos como cuadrados con los campos dentro
+        for node in G.nodes():
+            # Obtener posición del nodo
+            x, y = pos[node]
+            
+            # Calcular tamaño del cuadrado basado en la cantidad de columnas y longitud del nombre
+            num_columnas = len(estructura[node]['columnas'])
+            # Ajustar el ancho basado en la longitud del nombre de la tabla y el contenido de los campos
+            # Calcular la longitud máxima de los nombres de campos para ajustar el ancho
+            max_campo_len = max([len(col[0]) for col in estructura[node]['columnas']], default=0)
+            ancho_base = max(0.25, len(node) * 0.012)
+            ancho = ancho_base + (max_campo_len * 0.012)  # Ancho proporcional a la longitud máxima de los campos
+            alto = 0.18 + (num_columnas * 0.04)    # Alto proporcional a la cantidad de columnas con más espacio
+            
+            # El tamaño de los nodos para evitar superposiciones
+            ancho *= 0.9
+            alto *= 0.9
+            
+            # Color del nodo según si tiene relaciones
+            color = '#4CAF50' if G.nodes[node].get('has_relations', False) else '#2196F3'
+            
+            # Crear un rectángulo para el nodo
+            rect = plt.Rectangle((x - ancho/2, y - alto/2), ancho, alto, 
+                                 facecolor=color, alpha=0.8, edgecolor='black', zorder=2)
+            plt.gca().add_patch(rect)
+            
+            # Agregar el nombre de la tabla en la parte superior del cuadrado con más margen
+            # El margen superior se reduce para acercar el título a los campos
+            plt.text(x, y + alto/2 - 0.008, node, 
+                     horizontalalignment='center', verticalalignment='top',
+                     fontsize=10, fontweight='bold', color='black', zorder=3)
+            
+            # Agregar los campos de la tabla dentro del cuadrado
+            campos_texto = []
+            campos_info = []
+            for i, columna in enumerate(estructura[node]['columnas']):
+                nombre = columna[0]
+                tipo = columna[1]
+                es_pk = ' (PK)' if columna[3] == 'PRI' else ''
+                campo_texto = f"{nombre}{es_pk}"
+                campos_texto.append(campo_texto)
+                campos_info.append((nombre, es_pk, columna[3] == 'PRI'))
+                
+                # Limitar la cantidad de campos mostrados si son muchos
+                if i >= 6 and len(estructura[node]['columnas']) > 8:
+                    campos_texto.append(f"... y {len(estructura[node]['columnas']) - 7} más")
+                    campos_info.append((f"... y {len(estructura[node]['columnas']) - 7} más", "", False))
+                    break
+            
+            # Calcular posición para cada campo with mejor espaciado vertical
+            # Ajustamos el espaciado según la cantidad de campos para optimizar el espacio
+            total_campos = len(campos_texto)
+            
+            # Calcular el espacio disponible dentro del rectángulo para los campos
+            espacio_disponible = alto - 0.06  # Reservar espacio para el título
+            espacio_por_campo = espacio_disponible / max(total_campos, 1)  # Evitar división por cero
+            
+            # Dibujar un separador después del título
+            separador_y = y + alto/2 - 0.04
+            plt.plot([x - ancho/2 + 0.01, x + ancho/2 - 0.01], [separador_y, separador_y], 
+                     color='black', linewidth=0.5, alpha=0.5, zorder=3)
+            
+            for i, (campo, info) in enumerate(zip(campos_texto, campos_info)):
+                # Calcular posición vertical with mejor distribución
+                # Empezamos desde arriba (después del título) y vamos bajando
+                offset_y = alto/2 - 0.06 - ((i + 0.7) * espacio_por_campo)
+                
+                # Determinar si es clave primaria para destacarla
+                es_pk = info[2]  # Es clave primaria
+                
+                # Dibujar el texto del campo con un fondo para mejor legibilidad
+                plt.text(x, y + offset_y, campo, 
+                         horizontalalignment='center', verticalalignment='center',
+                         fontsize=8, color='black', zorder=3,
+                         bbox=dict(facecolor='#E8F5E9' if es_pk else 'white', 
+                                  alpha=0.8, edgecolor='#CCCCCC' if es_pk else None, 
+                                  pad=2, boxstyle="round,pad=0.4"))
+        
+        # Dibujar aristas después de los nodos para que aparezcan por encima
+        nx.draw_networkx_edges(G, pos, edge_color='#9C27B0', arrows=True, arrowsize=20, width=1.5, alpha=0.9)
+        
+        # Dibujar etiquetas de aristas (relaciones) con mejor formato y por encima de todo
+        edge_labels = {(u, v): G[u][v]['label'] for u, v in G.edges()}
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=9, font_color='#D81B60')
+        
+        # Ajustar el diseño
+        plt.axis('off')
+        plt.tight_layout()
+        
+        # Asegurar que todo el gráfico esté visible dentro de los límites
+        ax = plt.gca()
+        ax.set_xlim(ax.get_xlim()[0] - 0.1, ax.get_xlim()[1] + 0.1)
+        ax.set_ylim(ax.get_ylim()[0] - 0.1, ax.get_ylim()[1] + 0.1)
+        
+        # Asegurarse de que el directorio 'img' exista
+        try:
+            os.makedirs(os.path.dirname(self.ruta_temp), exist_ok=True)
+        except Exception as e:
+            print(f"Error al crear el directorio para el diagrama: {e}") # Opcional para depuración
+            # Podrías mostrar un mensaje al usuario aquí si la creación falla
+            self.info_label.configure(text=f"Error al preparar la ruta para guardar el diagrama: {e}")
+            return
+
+        # Guardar la figura temporalmente
+        if os.path.exists(self.ruta_temp):
+            try:
+                os.remove(self.ruta_temp)
+            except:
+                pass # Si no se puede borrar, savefig lo sobrescribirá
+        
+        plt.savefig(self.ruta_temp, format='png', dpi=100, bbox_inches='tight')
+        plt.close()
+        
+        # Actualizar el estado antes de mostrar el diagrama
+        self.diagrama_generado = True
+        
+        # Mostrar el diagrama en la interfaz
+        self.mostrar_diagrama()
+        
+        # Crear una nueva etiqueta de información después de mostrar el diagrama
+        self.info_label = ctk.CTkLabel(
+            self.frame_diagrama,
+            text="Diagrama generado exitosamente !!!",
+            wraplength=600
+        )
+        self.info_label.pack(pady=5)
+
+    def mostrar_diagrama(self):
+        # Limpiar el frame de diagrama
+        for widget in self.frame_diagrama.winfo_children():
+            widget.destroy()
+        
+        # Cargar la imagen del diagrama
+        try:
+            self.original_img = Image.open(self.ruta_temp)
+            self.img_width, self.img_height = self.original_img.size
+            
+            # Crear un frame para contener la imagen y la información detallada
+            frame_contenido = ctk.CTkFrame(self.frame_diagrama)
+            frame_contenido.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            # Frame para la imagen con zoom
+            frame_imagen = ctk.CTkFrame(frame_contenido)
+            frame_imagen.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+            
+            # Canvas para la imagen con zoom y desplazamiento
+            self.canvas_frame = ctk.CTkFrame(frame_imagen)
+            self.canvas_frame.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Canvas para mostrar la imagen con capacidad de zoom y desplazamiento
+            self.canvas = Canvas(self.canvas_frame, bg="#2b2b2b", highlightthickness=0)
+            self.canvas.pack(fill="both", expand=True)
+            
+            # Crear scrollbars pero usando place para superponerlos sobre el canvas
+            h_scrollbar = Scrollbar(self.canvas_frame, orient="horizontal", command=self.canvas.xview)
+            v_scrollbar = Scrollbar(self.canvas_frame, orient="vertical", command=self.canvas.yview)
+            
+            # Usar place para superponer los scrollbars sobre el canvas
+            h_scrollbar.place(relx=0, rely=1.0, relwidth=1.0, anchor="sw", height=15)
+            v_scrollbar.place(relx=1.0, rely=0, relheight=1.0, anchor="ne", width=15)
+            
+            self.canvas.configure(xscrollcommand=h_scrollbar.set, yscrollcommand=v_scrollbar.set)
+            
+            # Configurar eventos del canvas para zoom y desplazamiento
+            self.canvas.bind("<ButtonPress-1>", self.start_pan)
+            self.canvas.bind("<B1-Motion>", self.pan_image)
+            self.canvas.bind("<ButtonRelease-1>", self.stop_pan)
+            
+            # Eventos de rueda del ratón para diferentes sistemas operativos
+            if sys.platform.startswith('win'):
+                self.canvas.bind("<MouseWheel>", self.zoom_with_mouse_windows)
+            else:  # Linux y macOS
+                self.canvas.bind("<Button-4>", self.zoom_with_mouse_linux)
+                self.canvas.bind("<Button-5>", self.zoom_with_mouse_linux)
+            
+            # Mostrar la imagen inicial
+            self.update_image()
+            
+            # Frame para mostrar detalles de las tablas
+            frame_detalles = ctk.CTkFrame(frame_contenido)
+            frame_detalles.pack(side="right", fill="both", expand=True, padx=5, pady=5)
+            
+            # Título para el panel de detalles
+            ctk.CTkLabel(
+                frame_detalles,
+                text="Detalles de las tablas",
+                font=("Arial", 14, "bold")
+            ).pack(pady=5)
+            
+            # Obtener la estructura de las tablas para mostrar detalles
+            estructura = self.obtener_estructura_tablas()
+            
+            # Crear un combobox para seleccionar la tabla
+            ctk.CTkLabel(frame_detalles, text="Selecciona una tabla:").pack(pady=5)
+            combo_tablas = ctk.CTkComboBox(
+                frame_detalles,
+                values=list(estructura.keys()),
+                command=self.mostrar_detalles_tabla
+            )
+            combo_tablas.pack(pady=5)
+            
+            # Frame para mostrar los detalles de la tabla seleccionada
+            self.frame_info_tabla = ctk.CTkScrollableFrame(frame_detalles, height=300)
+            self.frame_info_tabla.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Etiqueta inicial
+            self.label_info_tabla = ctk.CTkLabel(
+                self.frame_info_tabla,
+                text="Selecciona una tabla para ver sus detalles",
+                wraplength=300
+            )
+            self.label_info_tabla.pack(pady=10)
+            
+            # Guardar la estructura para acceder desde el callback
+            self.estructura_tablas = estructura
+            
+            # Agregar etiqueta informativa
+            ctk.CTkLabel(
+                frame_imagen,
+                text="Usa el ratón para mover y la rueda para hacer zoom",
+                font=("Arial", 10)
+            ).pack(pady=5)
+            
+        except Exception as e:
+            self.info_label = ctk.CTkLabel(
+                self.frame_diagrama,
+                text=f"Error al mostrar el diagrama: {str(e)}",
+                wraplength=600
+            )
+            self.info_label.pack(pady=20)
+
+    def obtener_estructura_tablas(self) -> Dict:
+        conexion, cursor = self.obtener_conexion()
+        if not conexion or not cursor:
+            return {}
+
+        bd_actual = self.obtener_bd()
+        if not bd_actual:
+            return {}
+
+        # Usar comillas invertidas para el nombre de la base de datos
+        cursor.execute(f"USE `{bd_actual}`")
+        cursor.execute("SHOW TABLES")
+        tablas = cursor.fetchall()
+
+        estructura = {}
+        for tabla in tablas:
+            nombre_tabla = tabla[0]
+            # Obtener estructura de la tabla usando comillas invertidas
+            cursor.execute(f"DESCRIBE `{nombre_tabla}`")
+            columnas = cursor.fetchall()
+            estructura[nombre_tabla] = {
+                'columnas': columnas,
+                'relaciones': []
+            }
+
+            # Obtener claves foráneas usando comillas invertidas
+            cursor.execute(f"""
+                SELECT 
+                    COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                FROM
+                    INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                WHERE
+                    TABLE_SCHEMA = '{bd_actual}'
+                    AND TABLE_NAME = '{nombre_tabla}'
+                    AND REFERENCED_TABLE_NAME IS NOT NULL
+            """)
+            relaciones = cursor.fetchall()
+            estructura[nombre_tabla]['relaciones'] = relaciones
+
+        return estructura
+
+    def generar_diagrama(self):
+        estructura = self.obtener_estructura_tablas()
+        if not estructura:
+            self.info_label.configure(text="No hay conexión a la base de datos o no se ha seleccionado una base de datos")
+            return
+
+        # Crear un grafo dirigido
+        G = nx.DiGraph()
+        
+        # Agregar nodos (tablas)
+        for tabla, info in estructura.items():
+            # Preparar el texto para el nodo
+            contenido = f"{tabla}\n\n"
+            for columna in info['columnas']:
+                nombre = columna[0]
+                tipo = columna[1]
+                nulo = 'NULL' if columna[2] == 'YES' else 'NOT NULL'
+                clave = ' PK' if columna[3] == 'PRI' else ''
+                contenido += f"{nombre} : {tipo} {nulo}{clave}\n"
+            
+            # Determinar el color del nodo según si tiene relaciones
+            tiene_relaciones = len(info['relaciones']) > 0
+            G.add_node(tabla, label=contenido, has_relations=tiene_relaciones)
+
+        # Añadir aristas (relaciones)
+        for tabla, info in estructura.items():
+            for relacion in info['relaciones']:
+                columna_origen = relacion[0]
+                tabla_destino = relacion[1]
+                columna_destino = relacion[2]
+                G.add_edge(tabla, tabla_destino, label=f"{columna_origen} -> {columna_destino}")
+
+        # Crear figura para el diagrama con un tamaño adecuado
+        plt.figure(figsize=(14, 10))
+        plt.clf()  # Limpiar la figura actual
+        
+        # Usar un layout para diagramas de bases de datos con mayor separación entre tablas
+        if len(G.nodes()) <= 5:
+            pos = nx.spring_layout(G, k=2.5, iterations=200)  # Aumentado el espacio entre nodos para pocos nodos
+        else:
+            # Para más nodos, usar un layout más espaciado pero organizado
+            try:
+                # Intentar primero con kamada_kawai pero con mucho más espacio
+                pos = nx.kamada_kawai_layout(G)
+                # Aplicar un factor de escala mayor para separar más los nodos
+                pos = {node: (coord[0]*3.0, coord[1]*3.0) for node, coord in pos.items()}
+            except:
+                # Fallback con mucha más separación
+                pos = nx.spring_layout(G, k=2.0, iterations=200, seed=42)
+        
+        # Dibujar nodos como cuadrados con los campos dentro
+        for node in G.nodes():
+            # Obtener posición del nodo
+            x, y = pos[node]
+            
+            # Calcular tamaño del cuadrado basado en la cantidad de columnas y longitud del nombre
+            num_columnas = len(estructura[node]['columnas'])
+            # Ajustar el ancho basado en la longitud del nombre de la tabla y el contenido de los campos
+            # Calcular la longitud máxima de los nombres de campos para ajustar el ancho
+            max_campo_len = max([len(col[0]) for col in estructura[node]['columnas']], default=0)
+            ancho_base = max(0.25, len(node) * 0.012)
+            ancho = ancho_base + (max_campo_len * 0.012)  # Ancho proporcional a la longitud máxima de los campos
+            alto = 0.18 + (num_columnas * 0.04)    # Alto proporcional a la cantidad de columnas con más espacio
+            
+            # El tamaño de los nodos para evitar superposiciones
+            ancho *= 0.9
+            alto *= 0.9
+            
+            # Color del nodo según si tiene relaciones
+            color = '#4CAF50' if G.nodes[node].get('has_relations', False) else '#2196F3'
+            
+            # Crear un rectángulo para el nodo
+            rect = plt.Rectangle((x - ancho/2, y - alto/2), ancho, alto, 
+                                 facecolor=color, alpha=0.8, edgecolor='black', zorder=2)
+            plt.gca().add_patch(rect)
+            
+            # Agregar el nombre de la tabla en la parte superior del cuadrado con más margen
+            # El margen superior se reduce para acercar el título a los campos
+            plt.text(x, y + alto/2 - 0.008, node, 
+                     horizontalalignment='center', verticalalignment='top',
+                     fontsize=10, fontweight='bold', color='black', zorder=3)
+            
+            # Agregar los campos de la tabla dentro del cuadrado
+            campos_texto = []
+            campos_info = []
+            for i, columna in enumerate(estructura[node]['columnas']):
+                nombre = columna[0]
+                tipo = columna[1]
+                es_pk = ' (PK)' if columna[3] == 'PRI' else ''
+                campo_texto = f"{nombre}{es_pk}"
+                campos_texto.append(campo_texto)
+                campos_info.append((nombre, es_pk, columna[3] == 'PRI'))
+                
+                # Limitar la cantidad de campos mostrados si son muchos
+                if i >= 6 and len(estructura[node]['columnas']) > 8:
+                    campos_texto.append(f"... y {len(estructura[node]['columnas']) - 7} más")
+                    campos_info.append((f"... y {len(estructura[node]['columnas']) - 7} más", "", False))
+                    break
+            
+            # Calcular posición para cada campo with mejor espaciado vertical
+            # Ajustamos el espaciado según la cantidad de campos para optimizar el espacio
+            total_campos = len(campos_texto)
+            
+            # Calcular el espacio disponible dentro del rectángulo para los campos
+            espacio_disponible = alto - 0.06  # Reservar espacio para el título
+            espacio_por_campo = espacio_disponible / max(total_campos, 1)  # Evitar división por cero
+            
+            # Dibujar un separador después del título
+            separador_y = y + alto/2 - 0.04
+            plt.plot([x - ancho/2 + 0.01, x + ancho/2 - 0.01], [separador_y, separador_y], 
+                     color='black', linewidth=0.5, alpha=0.5, zorder=3)
+            
+            for i, (campo, info) in enumerate(zip(campos_texto, campos_info)):
+                # Calcular posición vertical with mejor distribución
+                # Empezamos desde arriba (después del título) y vamos bajando
+                offset_y = alto/2 - 0.06 - ((i + 0.7) * espacio_por_campo)
+                
+                # Determinar si es clave primaria para destacarla
+                es_pk = info[2]  # Es clave primaria
+                
+                # Dibujar el texto del campo con un fondo para mejor legibilidad
+                plt.text(x, y + offset_y, campo, 
+                         horizontalalignment='center', verticalalignment='center',
+                         fontsize=8, color='black', zorder=3,
+                         bbox=dict(facecolor='#E8F5E9' if es_pk else 'white', 
+                                  alpha=0.8, edgecolor='#CCCCCC' if es_pk else None, 
+                                  pad=2, boxstyle="round,pad=0.4"))
+        
+        # Dibujar aristas después de los nodos para que aparezcan por encima
+        nx.draw_networkx_edges(G, pos, edge_color='#9C27B0', arrows=True, arrowsize=20, width=1.5, alpha=0.9)
+        
+        # Dibujar etiquetas de aristas (relaciones) con mejor formato y por encima de todo
+        edge_labels = {(u, v): G[u][v]['label'] for u, v in G.edges()}
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=9, font_color='#D81B60')
+        
+        # Ajustar el diseño
+        plt.axis('off')
+        plt.tight_layout()
+        
+        # Asegurar que todo el gráfico esté visible dentro de los límites
+        ax = plt.gca()
+        ax.set_xlim(ax.get_xlim()[0] - 0.1, ax.get_xlim()[1] + 0.1)
+        ax.set_ylim(ax.get_ylim()[0] - 0.1, ax.get_ylim()[1] + 0.1)
+        
+        # Asegurarse de que el directorio 'img' exista
+        try:
+            os.makedirs(os.path.dirname(self.ruta_temp), exist_ok=True)
+        except Exception as e:
+            print(f"Error al crear el directorio para el diagrama: {e}") # Opcional para depuración
+            # Podrías mostrar un mensaje al usuario aquí si la creación falla
+            self.info_label.configure(text=f"Error al preparar la ruta para guardar el diagrama: {e}")
+            return
+
+        # Guardar la figura temporalmente
+        if os.path.exists(self.ruta_temp):
+            try:
+                os.remove(self.ruta_temp)
+            except:
+                pass # Si no se puede borrar, savefig lo sobrescribirá
+        
+        plt.savefig(self.ruta_temp, format='png', dpi=100, bbox_inches='tight')
+        plt.close()
+        
+        # Actualizar el estado antes de mostrar el diagrama
+        self.diagrama_generado = True
+        
+        # Mostrar el diagrama en la interfaz
+        self.mostrar_diagrama()
+        
+        # Crear una nueva etiqueta de información después de mostrar el diagrama
+        self.info_label = ctk.CTkLabel(
+            self.frame_diagrama,
+            text="Diagrama generado exitosamente !!!",
+            wraplength=600
+        )
+        self.info_label.pack(pady=5)
+
+    def mostrar_diagrama(self):
+        # Limpiar el frame de diagrama
+        for widget in self.frame_diagrama.winfo_children():
+            widget.destroy()
+        
+        # Cargar la imagen del diagrama
+        try:
+            self.original_img = Image.open(self.ruta_temp)
+            self.img_width, self.img_height = self.original_img.size
+            
+            # Crear un frame para contener la imagen y la información detallada
+            frame_contenido = ctk.CTkFrame(self.frame_diagrama)
+            frame_contenido.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            # Frame para la imagen con zoom
+            frame_imagen = ctk.CTkFrame(frame_contenido)
+            frame_imagen.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+            
+            # Canvas para la imagen con zoom y desplazamiento
+            self.canvas_frame = ctk.CTkFrame(frame_imagen)
+            self.canvas_frame.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Canvas para mostrar la imagen con capacidad de zoom y desplazamiento
+            self.canvas = Canvas(self.canvas_frame, bg="#2b2b2b", highlightthickness=0)
+            self.canvas.pack(fill="both", expand=True)
+            
+            # Crear scrollbars pero usando place para superponerlos sobre el canvas
+            h_scrollbar = Scrollbar(self.canvas_frame, orient="horizontal", command=self.canvas.xview)
+            v_scrollbar = Scrollbar(self.canvas_frame, orient="vertical", command=self.canvas.yview)
+            
+            # Usar place para superponer los scrollbars sobre el canvas
+            h_scrollbar.place(relx=0, rely=1.0, relwidth=1.0, anchor="sw", height=15)
+            v_scrollbar.place(relx=1.0, rely=0, relheight=1.0, anchor="ne", width=15)
+            
+            self.canvas.configure(xscrollcommand=h_scrollbar.set, yscrollcommand=v_scrollbar.set)
+            
+            # Configurar eventos del canvas para zoom y desplazamiento
+            self.canvas.bind("<ButtonPress-1>", self.start_pan)
+            self.canvas.bind("<B1-Motion>", self.pan_image)
+            self.canvas.bind("<ButtonRelease-1>", self.stop_pan)
+            
+            # Eventos de rueda del ratón para diferentes sistemas operativos
+            if sys.platform.startswith('win'):
+                self.canvas.bind("<MouseWheel>", self.zoom_with_mouse_windows)
+            else:  # Linux y macOS
+                self.canvas.bind("<Button-4>", self.zoom_with_mouse_linux)
+                self.canvas.bind("<Button-5>", self.zoom_with_mouse_linux)
+            
+            # Mostrar la imagen inicial
+            self.update_image()
+            
+            # Frame para mostrar detalles de las tablas
+            frame_detalles = ctk.CTkFrame(frame_contenido)
+            frame_detalles.pack(side="right", fill="both", expand=True, padx=5, pady=5)
+            
+            # Título para el panel de detalles
+            ctk.CTkLabel(
+                frame_detalles,
+                text="Detalles de las tablas",
+                font=("Arial", 14, "bold")
+            ).pack(pady=5)
+            
+            # Obtener la estructura de las tablas para mostrar detalles
+            estructura = self.obtener_estructura_tablas()
+            
+            # Crear un combobox para seleccionar la tabla
+            ctk.CTkLabel(frame_detalles, text="Selecciona una tabla:").pack(pady=5)
+            combo_tablas = ctk.CTkComboBox(
+                frame_detalles,
+                values=list(estructura.keys()),
+                command=self.mostrar_detalles_tabla
+            )
+            combo_tablas.pack(pady=5)
+            
+            # Frame para mostrar los detalles de la tabla seleccionada
+            self.frame_info_tabla = ctk.CTkScrollableFrame(frame_detalles, height=300)
+            self.frame_info_tabla.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Etiqueta inicial
+            self.label_info_tabla = ctk.CTkLabel(
+                self.frame_info_tabla,
+                text="Selecciona una tabla para ver sus detalles",
+                wraplength=300
+            )
+            self.label_info_tabla.pack(pady=10)
+            
+            # Guardar la estructura para acceder desde el callback
+            self.estructura_tablas = estructura
+            
+            # Agregar etiqueta informativa
+            ctk.CTkLabel(
+                frame_imagen,
+                text="Usa el ratón para mover y la rueda para hacer zoom",
+                font=("Arial", 10)
+            ).pack(pady=5)
+            
+        except Exception as e:
+            self.info_label = ctk.CTkLabel(
+                self.frame_diagrama,
+                text=f"Error al mostrar el diagrama: {str(e)}",
+                wraplength=600
+            )
+            self.info_label.pack(pady=20)
+
+    def obtener_estructura_tablas(self) -> Dict:
+        conexion, cursor = self.obtener_conexion()
+        if not conexion or not cursor:
+            return {}
+
+        bd_actual = self.obtener_bd()
+        if not bd_actual:
+            return {}
+
+        # Usar comillas invertidas para el nombre de la base de datos
+        cursor.execute(f"USE `{bd_actual}`")
+        cursor.execute("SHOW TABLES")
+        tablas = cursor.fetchall()
+
+        estructura = {}
+        for tabla in tablas:
+            nombre_tabla = tabla[0]
+            # Obtener estructura de la tabla usando comillas invertidas
+            cursor.execute(f"DESCRIBE `{nombre_tabla}`")
+            columnas = cursor.fetchall()
+            estructura[nombre_tabla] = {
+                'columnas': columnas,
+                'relaciones': []
+            }
+
+            # Obtener claves foráneas usando comillas invertidas
+            cursor.execute(f"""
+                SELECT 
+                    COLUMN_NAME, REFERENCED_TABLE_NAME, REFERENCED_COLUMN_NAME
+                FROM
+                    INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                WHERE
+                    TABLE_SCHEMA = '{bd_actual}'
+                    AND TABLE_NAME = '{nombre_tabla}'
+                    AND REFERENCED_TABLE_NAME IS NOT NULL
+            """)
+            relaciones = cursor.fetchall()
+            estructura[nombre_tabla]['relaciones'] = relaciones
+
+        return estructura
+
+    def generar_diagrama(self):
+        estructura = self.obtener_estructura_tablas()
+        if not estructura:
+            self.info_label.configure(text="No hay conexión a la base de datos o no se ha seleccionado una base de datos")
+            return
+
+        # Crear un grafo dirigido
+        G = nx.DiGraph()
+        
+        # Agregar nodos (tablas)
+        for tabla, info in estructura.items():
+            # Preparar el texto para el nodo
+            contenido = f"{tabla}\n\n"
+            for columna in info['columnas']:
+                nombre = columna[0]
+                tipo = columna[1]
+                nulo = 'NULL' if columna[2] == 'YES' else 'NOT NULL'
+                clave = ' PK' if columna[3] == 'PRI' else ''
+                contenido += f"{nombre} : {tipo} {nulo}{clave}\n"
+            
+            # Determinar el color del nodo según si tiene relaciones
+            tiene_relaciones = len(info['relaciones']) > 0
+            G.add_node(tabla, label=contenido, has_relations=tiene_relaciones)
+
+        # Añadir aristas (relaciones)
+        for tabla, info in estructura.items():
+            for relacion in info['relaciones']:
+                columna_origen = relacion[0]
+                tabla_destino = relacion[1]
+                columna_destino = relacion[2]
+                G.add_edge(tabla, tabla_destino, label=f"{columna_origen} -> {columna_destino}")
+
+        # Crear figura para el diagrama con un tamaño adecuado
+        plt.figure(figsize=(14, 10))
+        plt.clf()  # Limpiar la figura actual
+        
+        # Usar un layout para diagramas de bases de datos con mayor separación entre tablas
+        if len(G.nodes()) <= 5:
+            pos = nx.spring_layout(G, k=2.5, iterations=200)  # Aumentado el espacio entre nodos para pocos nodos
+        else:
+            # Para más nodos, usar un layout más espaciado pero organizado
+            try:
+                # Intentar primero con kamada_kawai pero con mucho más espacio
+                pos = nx.kamada_kawai_layout(G)
+                # Aplicar un factor de escala mayor para separar más los nodos
+                pos = {node: (coord[0]*3.0, coord[1]*3.0) for node, coord in pos.items()}
+            except:
+                # Fallback con mucha más separación
+                pos = nx.spring_layout(G, k=2.0, iterations=200, seed=42)
+        
+        # Dibujar nodos como cuadrados con los campos dentro
+        for node in G.nodes():
+            # Obtener posición del nodo
+            x, y = pos[node]
+            
+            # Calcular tamaño del cuadrado basado en la cantidad de columnas y longitud del nombre
+            num_columnas = len(estructura[node]['columnas'])
+            # Ajustar el ancho basado en la longitud del nombre de la tabla y el contenido de los campos
+            # Calcular la longitud máxima de los nombres de campos para ajustar el ancho
+            max_campo_len = max([len(col[0]) for col in estructura[node]['columnas']], default=0)
+            ancho_base = max(0.25, len(node) * 0.012)
+            ancho = ancho_base + (max_campo_len * 0.012)  # Ancho proporcional a la longitud máxima de los campos
+            alto = 0.18 + (num_columnas * 0.04)    # Alto proporcional a la cantidad de columnas con más espacio
+            
+            # El tamaño de los nodos para evitar superposiciones
+            ancho *= 0.9
+            alto *= 0.9
+            
+            # Color del nodo según si tiene relaciones
+            color = '#4CAF50' if G.nodes[node].get('has_relations', False) else '#2196F3'
+            
+            # Crear un rectángulo para el nodo
+            rect = plt.Rectangle((x - ancho/2, y - alto/2), ancho, alto, 
+                                 facecolor=color, alpha=0.8, edgecolor='black', zorder=2)
+            plt.gca().add_patch(rect)
+            
+            # Agregar el nombre de la tabla en la parte superior del cuadrado con más margen
+            # El margen superior se reduce para acercar el título a los campos
+            plt.text(x, y + alto/2 - 0.008, node, 
+                     horizontalalignment='center', verticalalignment='top',
+                     fontsize=10, fontweight='bold', color='black', zorder=3)
+            
+            # Agregar los campos de la tabla dentro del cuadrado
+            campos_texto = []
+            campos_info = []
+            for i, columna in enumerate(estructura[node]['columnas']):
+                nombre = columna[0]
+                tipo = columna[1]
+                es_pk = ' (PK)' if columna[3] == 'PRI' else ''
+                campo_texto = f"{nombre}{es_pk}"
+                campos_texto.append(campo_texto)
+                campos_info.append((nombre, es_pk, columna[3] == 'PRI'))
+                
+                # Limitar la cantidad de campos mostrados si son muchos
+                if i >= 6 and len(estructura[node]['columnas']) > 8:
+                    campos_texto.append(f"... y {len(estructura[node]['columnas']) - 7} más")
+                    campos_info.append((f"... y {len(estructura[node]['columnas']) - 7} más", "", False))
+                    break
+            
+            # Calcular posición para cada campo with mejor espaciado vertical
+            # Ajustamos el espaciado según la cantidad de campos para optimizar el espacio
+            total_campos = len(campos_texto)
+            
+            # Calcular el espacio disponible dentro del rectángulo para los campos
+            espacio_disponible = alto - 0.06  # Reservar espacio para el título
+            espacio_por_campo = espacio_disponible / max(total_campos, 1)  # Evitar división por cero
+            
+            # Dibujar un separador después del título
+            separador_y = y + alto/2 - 0.04
+            plt.plot([x - ancho/2 + 0.01, x + ancho/2 - 0.01], [separador_y, separador_y], 
+                     color='black', linewidth=0.5, alpha=0.5, zorder=3)
+            
+            for i, (campo, info) in enumerate(zip(campos_texto, campos_info)):
+                # Calcular posición vertical with mejor distribución
+                # Empezamos desde arriba (después del título) y vamos bajando
+                offset_y = alto/2 - 0.06 - ((i + 0.7) * espacio_por_campo)
+                
+                # Determinar si es clave primaria para destacarla
+                es_pk = info[2]  # Es clave primaria
+                
+                # Dibujar el texto del campo con un fondo para mejor legibilidad
+                plt.text(x, y + offset_y, campo, 
+                         horizontalalignment='center', verticalalignment='center',
+                         fontsize=8, color='black', zorder=3,
+                         bbox=dict(facecolor='#E8F5E9' if es_pk else 'white', 
+                                  alpha=0.8, edgecolor='#CCCCCC' if es_pk else None, 
+                                  pad=2, boxstyle="round,pad=0.4"))
+        
+        # Dibujar aristas después de los nodos para que aparezcan por encima
+        nx.draw_networkx_edges(G, pos, edge_color='#9C27B0', arrows=True, arrowsize=20, width=1.5, alpha=0.9)
+        
+        # Dibujar etiquetas de aristas (relaciones) con mejor formato y por encima de todo
+        edge_labels = {(u, v): G[u][v]['label'] for u, v in G.edges()}
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=9, font_color='#D81B60')
+        
+        # Ajustar el diseño
+        plt.axis('off')
+        plt.tight_layout()
+        
+        # Asegurar que todo el gráfico esté visible dentro de los límites
+        ax = plt.gca()
+        ax.set_xlim(ax.get_xlim()[0] - 0.1, ax.get_xlim()[1] + 0.1)
+        ax.set_ylim(ax.get_ylim()[0] - 0.1, ax.get_ylim()[1] + 0.1)
+        
+        # Asegurarse de que el directorio 'img' exista
+        try:
+            os.makedirs(os.path.dirname(self.ruta_temp), exist_ok=True)
+        except Exception as e:
+            print(f"Error al crear el directorio para el diagrama: {e}") # Opcional para depuración
+            # Podrías mostrar un mensaje al usuario aquí si la creación falla
+            self.info_label.configure(text=f"Error al preparar la ruta para guardar el diagrama: {e}")
+            return
+
+        # Guardar la figura temporalmente
+        if os.path.exists(self.ruta_temp):
+            try:
+                os.remove(self.ruta_temp)
+            except:
+                pass # Si no se puede borrar, savefig lo sobrescribirá
+        
+        plt.savefig(self.ruta_temp, format='png', dpi=100, bbox_inches='tight')
+        plt.close()
+        
+        # Actualizar el estado antes de mostrar el diagrama
+        self.diagrama_generado = True
+        
+        # Mostrar el diagrama en la interfaz
+        self.mostrar_diagrama()
+        
+        # Crear una nueva etiqueta de información después de mostrar el diagrama
+        self.info_label = ctk.CTkLabel(
+            self.frame_diagrama,
+            text="Diagrama generado exitosamente !!!",
+            wraplength=600
+        )
+        self.info_label.pack(pady=5)
+
+    def mostrar_diagrama(self):
+        # Limpiar el frame de diagrama
+        for widget in self.frame_diagrama.winfo_children():
+            widget.destroy()
+        
+        # Cargar la imagen del diagrama
+        try:
+            self.original_img = Image.open(self.ruta_temp)
+            self.img_width, self.img_height = self.original_img.size
+            
+            # Crear un frame para contener la imagen y la información detallada
+            frame_contenido = ctk.CTkFrame(self.frame_diagrama)
+            frame_contenido.pack(fill="both", expand=True, padx=10, pady=10)
+            
+            # Frame para la imagen con zoom
+            frame_imagen = ctk.CTkFrame(frame_contenido)
+            frame_imagen.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+            
+            # Canvas para la imagen con zoom y desplazamiento
+            self.canvas_frame = ctk.CTkFrame(frame_imagen)
+            self.canvas_frame.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Canvas para mostrar la imagen con capacidad de zoom y desplazamiento
+            self.canvas = Canvas(self.canvas_frame, bg="#2b2b2b", highlightthickness=0)
+            self.canvas.pack(fill="both", expand=True)
+            
+            # Crear scrollbars pero usando place para superponerlos sobre el canvas
+            h_scrollbar = Scrollbar(self.canvas_frame, orient="horizontal", command=self.canvas.xview)
+            v_scrollbar = Scrollbar(self.canvas_frame, orient="vertical", command=self.canvas.yview)
+            
+            # Usar place para superponer los scrollbars sobre el canvas
+            h_scrollbar.place(relx=0, rely=1.0, relwidth=1.0, anchor="sw", height=15)
+            v_scrollbar.place(relx=1.0, rely=0, relheight=1.0, anchor="ne", width=15)
+            
+            self.canvas.configure(xscrollcommand=h_scrollbar.set, yscrollcommand=v_scrollbar.set)
+            
+            # Configurar eventos del canvas para zoom y desplazamiento
+            self.canvas.bind("<ButtonPress-1>", self.start_pan)
+            self.canvas.bind("<B1-Motion>", self.pan_image)
+            self.canvas.bind("<ButtonRelease-1>", self.stop_pan)
+            
+            # Eventos de rueda del ratón para diferentes sistemas operativos
+            if sys.platform.startswith('win'):
+                self.canvas.bind("<MouseWheel>", self.zoom_with_mouse_windows)
+            else:  # Linux y macOS
+                self.canvas.bind("<Button-4>", self.zoom_with_mouse_linux)
+                self.canvas.bind("<Button-5>", self.zoom_with_mouse_linux)
+            
+            # Mostrar la imagen inicial
+            self.update_image()
+            
+            # Frame para mostrar detalles de las tablas
+            frame_detalles = ctk.CTkFrame(frame_contenido)
+            frame_detalles.pack(side="right", fill="both", expand=True, padx=5, pady=5)
+            
+            # Título para el panel de detalles
+            ctk.CTkLabel(
+                frame_detalles,
+                text="Detalles de las tablas",
+                font=("Arial", 14, "bold")
+            ).pack(pady=5)
+            
+            # Obtener la estructura de las tablas para mostrar detalles
+            estructura = self.obtener_estructura_tablas()
+            
+            # Crear un combobox para seleccionar la tabla
+            ctk.CTkLabel(frame_detalles, text="Selecciona una tabla:").pack(pady=5)
+            combo_tablas = ctk.CTkComboBox(
+                frame_detalles,
+                values=list(estructura.keys()),
+                command=self.mostrar_detalles_tabla
+            )
+            combo_tablas.pack(pady=5)
+            
+            # Frame para mostrar los detalles de la tabla seleccionada
+            self.frame_info_tabla = ctk.CTkScrollableFrame(frame_detalles, height=300)
+            self.frame_info_tabla.pack(fill="both", expand=True, padx=5, pady=5)
+            
+            # Etiqueta inicial
+            self.label_info_tabla = ctk.CTkLabel(
+                self.frame_info_tabla,
+                text="Selecciona una tabla para ver sus detalles",
+                wraplength=300
+            )
+            self.label_info_tabla.pack(pady=10)
+            
+            # Guardar la estructura para acceder desde el callback
+            self.estructura_tablas = estructura
+            
+            # Agregar etiqueta informativa
+            ctk.CTkLabel(
+                frame_imagen,
+                text="Usa el ratón para mover y la rueda para hacer zoom",
+                font=("Arial", 10)
+            ).pack(pady=5)
+            
+        except Exception as e:
+            self.info_label = ctk.CTkLabel(
+                self.frame_diagrama,
+                text=f"Error al mostrar el diagrama: {str(e)}",
+                wraplength=600
+            )
+            self.info_label.pack(pady=20)
+
+    def zoom_with_mouse_windows(self, event):
+        """Zoom con la rueda del ratón en Windows"""
+        if event.delta > 0:
+            self.zoom_factor *= 1.1
+        else:
+            self.zoom_factor = max(0.1, self.zoom_factor / 1.1)
+        self.update_image()
+    
+    def zoom_with_mouse_linux(self, event):
+        """Zoom con la rueda del ratón en Linux/macOS"""
+        if event.num == 4:  # Scroll up
+            self.zoom_factor *= 1.1
+        elif event.num == 5:  # Scroll down
+            self.zoom_factor = max(0.1, self.zoom_factor / 1.1)
+        self.update_image()
+    
     def mostrar_detalles_tabla(self, tabla_seleccionada):
         """Muestra los detalles de la tabla seleccionada"""
         # Limpiar el frame de información
@@ -581,14 +1893,6 @@ class PestanaVisualizacionMatplotlib(ctk.CTkFrame):
     def stop_pan(self, event):
         self.is_panning = False
     
-    def zoom_with_mouse(self, event):
-        # Zoom con la rueda del ratón
-        if event.delta > 0:
-            self.zoom_factor *= 1.1
-        else:
-            self.zoom_factor = max(0.1, self.zoom_factor / 1.1)
-        self.update_image()
-    
     def exportar_diagrama(self):
         if not self.diagrama_generado:
             self.info_label = ctk.CTkLabel(
@@ -644,7 +1948,13 @@ class PestanaVisualizacionMatplotlib(ctk.CTkFrame):
             self.canvas.bind("<ButtonPress-1>", self.start_pan)
             self.canvas.bind("<B1-Motion>", self.pan_image)
             self.canvas.bind("<ButtonRelease-1>", self.stop_pan)
-            self.canvas.bind("<MouseWheel>", self.zoom_with_mouse)
+            
+            # Eventos de rueda del ratón para diferentes sistemas operativos
+            if sys.platform.startswith('win'):
+                self.canvas.bind("<MouseWheel>", self.zoom_with_mouse_windows)
+            else:  # Linux y macOS
+                self.canvas.bind("<Button-4>", self.zoom_with_mouse_linux)
+                self.canvas.bind("<Button-5>", self.zoom_with_mouse_linux)
             
             self.modo_interactivo = False
             self.btn_modo_interactivo.configure(text="Desactivar Interactivo")
@@ -750,46 +2060,42 @@ class PestanaVisualizacionMatplotlib(ctk.CTkFrame):
         # Limpiar la figura actual
         plt.clf()
         
-        # Redibujar el diagrama con las nuevas posiciones       
-        # Guardar y mostrar el diagrama actualizado
-        plt.savefig(self.ruta_temp, format='png', dpi=100, bbox_inches='tight')
-        plt.close()
+        # Usar el grafo y posiciones guardadas
+        nx.draw_networkx_edges(self.grafo, self.posiciones, 
+                             edge_color='#9C27B0', 
+                             arrows=True, 
+                             arrowsize=20, 
+                             width=1.5, 
+                             alpha=0.9)
         
-        # Actualizar la imagen en el canvas
-        self.update_image()
-        # Dibujar aristas después de los nodos para que aparezcan por encima
-        nx.draw_networkx_edges(G, pos, edge_color='#9C27B0', arrows=True, arrowsize=20, width=1.5, alpha=0.9)
-        
-        # Dibujar etiquetas de aristas (relaciones) con mejor formato
-        edge_labels = {(u, v): G[u][v]['label'] for u, v in G.edges()}
-        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=9, font_color='#D81B60')
+        # Dibujar etiquetas de aristas (relaciones)
+        edge_labels = {(u, v): self.grafo[u][v]['label'] 
+                      for u, v in self.grafo.edges()}
+        nx.draw_networkx_edge_labels(self.grafo, 
+                                   self.posiciones, 
+                                   edge_labels=edge_labels, 
+                                   font_size=9, 
+                                   font_color='#D81B60')
         
         # Ajustar el diseño
         plt.axis('off')
         plt.tight_layout()
         
-        # Asegurar que todo el gráfico esté visible dentro de los límites
+        # Asegurar que todo el gráfico esté visible
         ax = plt.gca()
         ax.set_xlim(ax.get_xlim()[0] - 0.1, ax.get_xlim()[1] + 0.1)
         ax.set_ylim(ax.get_ylim()[0] - 0.1, ax.get_ylim()[1] + 0.1)
         
-        # Asegurarse de que el directorio 'img' exista
-        try:
-            os.makedirs(os.path.dirname(self.ruta_temp), exist_ok=True)
-        except Exception as e:
-            print(f"Error al crear el directorio para el diagrama: {e}") # Opcional para depuración
-            # Podrías mostrar un mensaje al usuario aquí si la creación falla
-            self.info_label.configure(text=f"Error al preparar la ruta para guardar el diagrama: {e}")
-            return
-
         # Guardar la figura temporalmente
         if os.path.exists(self.ruta_temp):
             try:
                 os.remove(self.ruta_temp)
             except:
-                pass # Si no se puede borrar, savefig lo sobrescribirá
+                pass
         
         plt.savefig(self.ruta_temp, format='png', dpi=100, bbox_inches='tight')
         plt.close()
         
-  
+        # Actualizar la imagen en el canvas
+        self.update_image()
+

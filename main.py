@@ -26,8 +26,13 @@ class AplicacionBD(ctk.CTk):
         # Permitir que la ventana sea redimensionable y que los componentes se adapten
         self.minsize(800, 600)  # Tamaño mínimo para asegurar usabilidad
         
-        # Iniciar en pantalla completa
-        self.state('zoomed')
+        # Maximizar la ventana de manera compatible con diferentes sistemas operativos
+        if sys.platform.startswith('win'):
+            self.state('zoomed')
+        elif sys.platform.startswith('linux'):
+            self.attributes('-zoomed', True)
+        else:  # Para macOS y otros sistemas
+            self.attributes('-fullscreen', True)
 
         # Crear panel de estado de conexión en la parte inferior
         self.panel_estado = ctk.CTkFrame(self, height=30)
