@@ -59,7 +59,7 @@ python main.py
 
 ## Uso
 
-1. Ejecutar la aplicación:
+1. **Ejecutar la aplicación**
 ```powershell
 python main.py
 ```
