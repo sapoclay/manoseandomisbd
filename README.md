@@ -137,10 +137,6 @@ git push origin feature/CaracteristicaIncreible
 - `Refactor:` Refactorización de código
 - `Test:` Añadir/modificar tests
 
-## Licencia
-
-Este proyecto está bajo la licencia [MIT](LICENSE).
-
 ## Mejoras a medio y largo plazo
 
 Se planean implementar las siguientes mejoras y características al programa:
@@ -191,3 +187,7 @@ Si tienes alguna sugerencia adicional para futuras versiones, no dudes en abrir 
    - Comportamiento esperado vs actual
    - Screenshots si es posible
    - Información del sistema (OS, versión de Python, etc)
+
+## Licencia
+
+Este proyecto está bajo la licencia [MIT](LICENSE).
