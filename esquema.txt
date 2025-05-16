@@ -1,0 +1,55 @@
+Autor: Damián A.
+Manoseando Mis Bases De Datos 2025
+
+ManoseandoMisBD/                        # Aplicación de gestión de bases de datos MySQL
+│
+├── config/                             # Configuración del proyecto
+│   ├── consultas_favoritas.json        # Almacena consultas SQL favoritas del usuario
+│   └── gemini_config.txt               # Configuración de la API de Gemini
+│
+├── img/                                # Recursos gráficos
+│   ├── diagrama_bd_temp.png            # Imagen temporal para diagramas de BD
+│   └── logo_app.jpg                    # Logo de la aplicación
+│
+├── modulos/                            # Módulos principales de la aplicación
+│   ├── __pycache__/                    # Archivos de caché de Python (generados automáticamente)
+│   │   ├── *.cpython-312.pyc           # Archivos compilados para Python 3.12
+│   │   └── *.cpython-313.pyc           # Archivos compilados para Python 3.13
+│   ├── __init__.py                     # Inicializador del paquete
+│   ├── acerca_de.py                    # Módulo para la implementación de la pestaña "Acerca de"
+│   ├── conexion.py                     # Módulo para la gestión de conexiones MySQL y la pestaña "Conexión"
+│   ├── consultas_naturales_gemini.py   # Módulo para el procesamiento de lenguaje natural con Gemini y la pestaña "Lenguaje natural"
+│   ├── consultas_sql.py                # Módulo para la gestión de consultas SQL directas y la pestaña "Consultas sql"
+│   ├── gemini_api.py                   # Módulo para la integración con API de Gemini
+│   └── visualizacion_matplotlib.py     # Módulo para la visualización de datos con Matplotlib
+│
+│
+├── main.py                             # Punto de entrada principal
+│                                       # - Implementa la interfaz gráfica principal
+│                                       # - Gestiona las pestañas y la interacción entre módulos
+│                                       # - Monitorea el estado de la conexión MySQL
+│                                       # - Implementa la actualización de fecha/hora
+│
+└── requirements.txt                    # Lista de dependencias del proyecto
+                                        # Dependencias incluidas:
+                                        # - customtkinter (interfaz gráfica)
+                                        # - mysql-connector-python (conexión MySQL)
+                                        # - matplotlib (visualización)
+                                        # - google-cloud-aiplatform (Gemini API)
+
+Características principales:
+- Interfaz gráfica moderna con CustomTkinter
+- Gestión de conexiones MySQL
+- Visualización de datos con gráficos
+- Editor de consultas SQL con resaltado de sintaxis
+- Procesamiento de lenguaje natural para consultas
+- Sistema de monitoreo de estado del servidor
+- Soporte multilingüe (español)
+- Sistema de pestañas para organización de funcionalidades
+
+Módulos principales:
+1. Conexión: Gestión de conexiones a bases de datos MySQL
+2. Visualización: Generación de gráficos y visualizaciones de datos
+3. Consultas SQL: Editor y ejecutor de consultas SQL directas
+4. Consultas en Lenguaje Natural: Interfaz con Gemini para consultas en español
+5. Acerca de: Información sobre la aplicación y documentación

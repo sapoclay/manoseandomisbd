@@ -1,0 +1,8 @@
+customtkinter
+mysql-connector-python
+Pillow
+sqlglot
+matplotlib
+networkx
+requests
+sqlparse
