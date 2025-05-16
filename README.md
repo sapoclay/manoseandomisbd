@@ -1,4 +1,4 @@
-# ManoseandoMisBD
+# ManoseandoMisBD Versión: 0.01
 
 ![about](https://github.com/user-attachments/assets/85785ebd-ce61-4b86-9e3a-8a037f8159bb)
 
