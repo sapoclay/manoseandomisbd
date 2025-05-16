@@ -1,5 +1,7 @@
 # ManoseandoMisBD
 
+![about](https://github.com/user-attachments/assets/85785ebd-ce61-4b86-9e3a-8a037f8159bb)
+
 Se trata de una aplicación de escritorio moderna y sencilla para la gestión, visualización y consulta de bases de datos MySQL. 
 Ha sido diseñada para hacer las consultas y el análisis de datos más accesible mediante una interfaz gráfica intuitiva que ha sido creada con tkinter y customtkinter. Además cuenta con capacidades de procesamiento de lenguaje natural para que incluso si no tienes ni idea de SQL puedas realizar consultas u operaciones con la base de datos SQL.
 
@@ -70,6 +72,20 @@ python main.py
    - **SQL Directo**: Usa la pestaña "Consultas SQL"
    - **Lenguaje Natural**: Usa la pestaña "Consultas en Lenguaje Natural"
    - **Visualización**: Genera gráficos en la pestaña "Visualización"
+
+## Capturas
+
+### Pestaña conexión
+![conexion](https://github.com/user-attachments/assets/d0007f51-816b-4b5c-94c5-eacfccdedc29)
+
+### Pestaña visualización
+![visualizacion](https://github.com/user-attachments/assets/40b5fa96-e49b-43a1-8e12-8e9f0d39e93b)
+
+### Pestaña sentencias sql
+![sentencias_sql](https://github.com/user-attachments/assets/002df344-2fc7-4d20-b3ac-8b704e659898)
+
+### Pestaña lenguaje natural
+![lenguaje-natural](https://github.com/user-attachments/assets/ce4e4677-0408-4b7a-86fa-b2eda748dca2)
 
 ## Estructura del proyecto
 
