@@ -30,10 +30,14 @@ ManoseandoMisBD/                        # Aplicación de gestión de bases de da
 │
 └── requirements.txt                    # Lista de dependencias del proyecto
                                         # Dependencias incluidas:
-                                        # - customtkinter (interfaz gráfica)
-                                        # - mysql-connector-python (conexión MySQL)
-                                        # - matplotlib (visualización)
-                                        # - google-cloud-aiplatform (Gemini API)
+                                        # - customtkinter
+                                        # - mysql-connector-python
+                                        # - Pillow
+                                        # - sqlglot
+                                        # - matplotlib
+                                        # - networkx
+                                        # - requests
+                                        # - sqlparse
 
 Características principales:
 - Interfaz gráfica moderna con CustomTkinter
@@ -42,7 +46,7 @@ Características principales:
 - Editor de consultas SQL con resaltado de sintaxis
 - Procesamiento de lenguaje natural para consultas
 - Sistema de monitoreo de estado del servidor
-- Soporte multilingüe (español)
+- Soporte para español
 - Sistema de pestañas para organización de funcionalidades
 
 Módulos principales:

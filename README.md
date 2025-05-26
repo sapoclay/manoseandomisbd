@@ -122,10 +122,22 @@ ManoseandoMisBD/                        # Aplicación de gestión de bases de da
 │
 └── requirements.txt                    # Lista de dependencias del proyecto
                                         # Dependencias incluidas:
-                                        # - customtkinter (interfaz gráfica)
-                                        # - mysql-connector-python (conexión MySQL)
-                                        # - matplotlib (visualización)
-                                        # - google-cloud-aiplatform (Gemini API)
+                                        # - customtkinter: Framework moderno para crear interfaces gráficas con Tkinter,
+                                        #   proporciona widgets modernos y temas personalizables
+                                        # - mysql-connector-python: Conector oficial de MySQL para Python,
+                                        #   permite la comunicación con bases de datos MySQL
+                                        # - Pillow: Biblioteca para el procesamiento de imágenes,
+                                        #   usada para manejar los iconos y gráficos de la interfaz
+                                        # - sqlglot: Parser y formateador de SQL,
+                                        #   ayuda en el análisis y formateo de consultas SQL
+                                        # - matplotlib: Biblioteca de visualización de datos,
+                                        #   utilizada para crear gráficos y diagramas interactivos
+                                        # - networkx: Biblioteca para crear y manipular grafos,
+                                        #   usada en la visualización de relaciones entre tablas
+                                        # - requests: Biblioteca para realizar peticiones HTTP,
+                                        #   necesaria para la comunicación con la API de Gemini
+                                        # - sqlparse: Analizador de SQL,
+                                        #   permite formatear y validar consultas SQL
 ```
 
 ## Contribución
